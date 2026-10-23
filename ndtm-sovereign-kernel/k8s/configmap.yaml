@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ndtm-config
+  namespace: ndtm-sovereign
+data:
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  SERVICE_NAME: "ndtm-sovereign-kernel"
+  API_V1_PREFIX: "/api/v1"
+  POSTGRES_HOST: "ndtm-postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "ndtm_sovereign"
+  REDIS_HOST: "ndtm-redis-service"
+  REDIS_PORT: "6379"
+  RABBITMQ_HOST: "ndtm-rabbitmq-service"
+  RABBITMQ_PORT: "5672"
+  SHM_ARENA_NAME: "/ndtm_zero_copy_arena"
+  SHM_SLOT_COUNT: "64"
+  GCRA_RATE_PER_SECOND: "50"
+  GCRA_BURST_CAPACITY: "100"
+  Z3_SOLVER_TIMEOUT_MS: "2500"
+  ROUTER_ENTROPY_THRESHOLD: "0.45"
+  SPECULATIVE_REJECTION_THRESHOLD: "0.75"

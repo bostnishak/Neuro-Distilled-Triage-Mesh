@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ndtm-sovereign
+  labels:
+    app.kubernetes.io/name: ndtm-sovereign
+    app.kubernetes.io/part-of: ndtm-9000

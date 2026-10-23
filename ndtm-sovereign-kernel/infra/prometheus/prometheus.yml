@@ -1,0 +1,50 @@
+# ==============================================================================
+# NDTM-9000 SOVEREIGN KERNEL — PROMETHEUS METRICS AGGREGATOR
+# Global Scrape Configurations & Real-Time Service Monitors
+# ==============================================================================
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  scrape_timeout: 4s
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  # 1. Self-Scrape Prometheus Internal Stats
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 2. NDTM-9000 Sovereign Python Kernel (FastAPI / Prometheus Exporter)
+  - job_name: "ndtm-backend-kernel"
+    metrics_path: "/metrics"
+    scrape_interval: 2s
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          environment: "production"
+          service: "ndtm-backend"
+          tier: "control-plane"
+
+  # 3. C++20 Edge DSP & POSIX Shared Memory Daemon
+  - job_name: "ndtm-edge-cpp-kernel"
+    metrics_path: "/metrics"
+    scrape_interval: 2s
+    static_configs:
+      - targets: ["edge-cpp-kernel:50051"]
+        labels:
+          environment: "production"
+          service: "ndtm-edge-cpp"
+          tier: "data-plane"
+
+  # 4. RabbitMQ Message Broker Metrics
+  - job_name: "rabbitmq"
+    metrics_path: "/metrics"
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["rabbitmq:15672"]
+        labels:
+          service: "rabbitmq"
+          cluster: "ndtm-amqp"

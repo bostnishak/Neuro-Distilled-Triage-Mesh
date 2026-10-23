@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ndtm-frontend
+  namespace: ndtm-sovereign
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ndtm-frontend
+  template:
+    metadata:
+      labels:
+        app: ndtm-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ndtm-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ndtm-frontend-service
+  namespace: ndtm-sovereign
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: ndtm-frontend

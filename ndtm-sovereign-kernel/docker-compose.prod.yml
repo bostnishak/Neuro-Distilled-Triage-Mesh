@@ -1,0 +1,142 @@
+version: "3.9"
+
+services:
+  pgbouncer:
+    build:
+      context: ./infra/pgbouncer
+      dockerfile: Dockerfile
+    container_name: ndtm-pgbouncer-prod
+    restart: always
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./infra/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./infra/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres_primary:
+        condition: service_healthy
+    networks:
+      - ndtm-prod-mesh
+
+  postgres_primary:
+    image: pgvector/pgvector:pg16
+    container_name: ndtm-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ndtm_primary
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+      - ./infra/postgres/01_extensions_and_types.sql:/docker-entrypoint-initdb.d/01_extensions_and_types.sql:ro
+      - ./infra/postgres/02_core_tables_and_hnsw.sql:/docker-entrypoint-initdb.d/02_core_tables_and_hnsw.sql:ro
+      - ./infra/postgres/03_event_store_and_merkle.sql:/docker-entrypoint-initdb.d/03_event_store_and_merkle.sql:ro
+      - ./infra/postgres/04_seed_istanbul_topology.sql:/docker-entrypoint-initdb.d/04_seed_istanbul_topology.sql:ro
+      - ./infra/postgres/05_partitioned_hot_schema_v3.sql:/docker-entrypoint-initdb.d/05_partitioned_hot_schema_v3.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ndtm_primary"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ndtm-prod-mesh
+
+  redis_cluster:
+    image: redis:7.2-alpine
+    container_name: ndtm-redis-prod
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "2gb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata_prod:/data
+    networks:
+      - ndtm-prod-mesh
+
+  rabbitmq_mesh:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ndtm-rabbitmq-prod
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ndtm_guest
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+    networks:
+      - ndtm-prod-mesh
+
+  ndtm_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ndtm-backend-prod
+    restart: always
+    ipc: host
+    ports:
+      - "8000:8000"
+    environment:
+      SERVICE_NAME: "ndtm-sovereign-kernel"
+      APP_ENV: "production"
+      DATABASE_URL: "postgresql+asyncpg://ndtm_mesh:${MESH_DB_PASSWORD:?set MESH_DB_PASSWORD}@pgbouncer:6432/ndtm_pool_rw"
+      DB_PGBOUNCER_RW_DSN: "postgresql://ndtm_mesh:${MESH_DB_PASSWORD:?set MESH_DB_PASSWORD}@pgbouncer:6432/ndtm_pool_rw"
+      DB_PGBOUNCER_RO_DSN: "postgresql://ndtm_mesh:${MESH_DB_PASSWORD:?set MESH_DB_PASSWORD}@pgbouncer:6432/ndtm_pool_ro"
+      REDIS_URL: "redis://redis_cluster:6379/0"
+      RABBITMQ_URL: "amqp://ndtm_guest:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}@rabbitmq_mesh:5672/"
+      Z3_SOLVER_TIMEOUT_MS: "1200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v3/sre/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis_cluster:
+        condition: service_started
+      rabbitmq_mesh:
+        condition: service_started
+    networks:
+      - ndtm-prod-mesh
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ndtm-prometheus-prod
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/slo_burn_rate_rules.yml:/etc/prometheus/slo_burn_rate_rules.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - ndtm-prod-mesh
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: ndtm-grafana-prod
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata_prod:/var/lib/grafana
+    networks:
+      - ndtm-prod-mesh
+
+networks:
+  ndtm-prod-mesh:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:
+  grafanadata_prod:

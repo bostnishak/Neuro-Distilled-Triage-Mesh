@@ -1,0 +1,245 @@
+# ==============================================================================
+# Neuro-Distilled Triage Mesh (NDTM) — Production Docker Compose Orchestration
+# ==============================================================================
+version: "3.8"
+
+networks:
+  ndtm_mesh_network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitmqdata:
+  promdata:
+  distilled_models:
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 + PostGIS + pgvector (HNSW Indexing)
+  # ----------------------------------------------------------------------------
+  postgres:
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    image: ndtm-postgres:16
+    container_name: ndtm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ndtm_db_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ndtm_db_secure_password_2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-ndtm_enterprise_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - ndtm_mesh_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ndtm_db_user} -d ${POSTGRES_DB:-ndtm_enterprise_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis 7.2 (Semantic KV-Cache & Sliding-Window Lua Rate Limiter)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: ndtm-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-ndtm_redis_secure_auth_token_2026!}
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - ndtm_mesh_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ndtm_redis_secure_auth_token_2026!}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. RabbitMQ 3.13 (AMQP 0-9-1 Topic Exchange + DLX)
+  # ----------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ndtm-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ndtm_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-ndtm_secret_amqp_pass_2026!}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "15692:15692" # Prometheus RabbitMQ Exporter plugin port
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - rabbitmqdata:/var/lib/rabbitmq
+    networks:
+      - ndtm_mesh_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # 4. FastAPI Enterprise Backend Gateway
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-backend:latest
+    container_name: ndtm-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - distilled_models:/app/distilled_models
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/v1/system/health\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # 5. Transactional Outbox Relay Worker (Guarantees Dual-Write Consistency)
+  # ----------------------------------------------------------------------------
+  outbox-relay:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-backend:latest
+    container_name: ndtm-outbox-relay
+    restart: unless-stopped
+    command: ["python", "-m", "db.outbox_relay"]
+    env_file:
+      - .env
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # 6. Async Incident Triage Consumer Worker
+  # ----------------------------------------------------------------------------
+  triage-consumer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-backend:latest
+    container_name: ndtm-triage-consumer
+    restart: unless-stopped
+    command: ["python", "-m", "workers.triage_consumer"]
+    env_file:
+      - .env
+    volumes:
+      - distilled_models:/app/distilled_models
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # 7. Shadow Drift Evaluator & Active Learning Worker
+  # ----------------------------------------------------------------------------
+  shadow-consumer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-backend:latest
+    container_name: ndtm-shadow-consumer
+    restart: unless-stopped
+    command: ["python", "-m", "workers.shadow_drift_consumer"]
+    env_file:
+      - .env
+    volumes:
+      - distilled_models:/app/distilled_models
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # 8. Prometheus Telemetry Collector
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ndtm-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    networks:
+      - ndtm_mesh_network
+
+  # ----------------------------------------------------------------------------
+  # 9. React 18 + TypeScript + Vite Cockpit Frontend
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ndtm-frontend:latest
+    container_name: ndtm-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      - backend
+
+  # ----------------------------------------------------------------------------
+  # 10. Nginx Edge Reverse Proxy Gateway
+  # ----------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ndtm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      - backend
+      - frontend

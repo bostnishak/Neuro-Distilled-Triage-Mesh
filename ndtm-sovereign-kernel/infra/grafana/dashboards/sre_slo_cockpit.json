@@ -1,0 +1,82 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "30-Day Error Budget Remaining",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "100 - (job:ndtm_slo:burn_rate_72h * 10)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "green", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Multi-Window Burn Rates (1h, 6h, 24h, 72h)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "job:ndtm_slo:burn_rate_1h", "legendFormat": "1h Burn Rate (Thresh: 14.4x)", "refId": "A" },
+        { "expr": "job:ndtm_slo:burn_rate_6h", "legendFormat": "6h Burn Rate (Thresh: 6.0x)", "refId": "B" },
+        { "expr": "job:ndtm_slo:burn_rate_24h", "legendFormat": "24h Burn Rate (Thresh: 3.0x)", "refId": "C" },
+        { "expr": "job:ndtm_slo:burn_rate_72h", "legendFormat": "72h Burn Rate (Thresh: 1.0x)", "refId": "D" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 3,
+      "title": "P99 Dispatch Latency vs 15ms Target",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.99, sum(rate(ndtm_dispatch_duration_seconds_bucket[5m])) by (le)) * 1000", "legendFormat": "P99 Latency (ms)", "refId": "A" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 4,
+      "title": "PgBouncer Connection Pool Multiplexing",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "pgbouncer_pools_cl_active", "legendFormat": "Active Clients", "refId": "A" },
+        { "expr": "pgbouncer_pools_sv_active", "legendFormat": "Active Server Backends", "refId": "B" }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["sre", "slo", "ndtm", "carrier-grade"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "NDTM-9000 Sovereign SRE & SLO Cockpit",
+  "uid": "ndtm-sre-slo-01",
+  "version": 1
+}

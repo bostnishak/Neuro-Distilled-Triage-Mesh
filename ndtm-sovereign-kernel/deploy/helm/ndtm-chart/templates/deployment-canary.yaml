@@ -1,0 +1,78 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ .Release.Name }}-backend-rollout
+  labels:
+    app.kubernetes.io/name: ndtm-backend
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    canary:
+      canaryService: {{ .Release.Name }}-backend-canary
+      stableService: {{ .Release.Name }}-backend-stable
+      trafficRouting:
+        nginx:
+          stableIngress: {{ .Release.Name }}-backend-ingress
+      steps:
+{{ toYaml .Values.canaryRollout.steps | indent 8 }}
+      analysis:
+        templates:
+          - templateName: {{ .Release.Name }}-ks-statistical-analysis
+        args:
+          - name: service-name
+            value: {{ .Release.Name }}-backend-canary
+  selector:
+    matchLabels:
+      app: ndtm-backend
+  template:
+    metadata:
+      labels:
+        app: ndtm-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: ndtm-kernel
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret | default "ndtm-secrets" }}
+          env:
+            - name: SERVICE_NAME
+              value: {{ .Values.env.SERVICE_NAME | quote }}
+            - name: APP_ENV
+              value: {{ .Values.env.APP_ENV | quote }}
+            - name: Z3_SOLVER_TIMEOUT_MS
+              value: {{ .Values.env.Z3_SOLVER_TIMEOUT_MS | quote }}
+            - name: ENABLE_SEQLOCK_IPC
+              value: {{ .Values.env.ENABLE_SEQLOCK_IPC | quote }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.preflightWarmup.readinessPath }}
+              port: http
+            initialDelaySeconds: {{ .Values.preflightWarmup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.preflightWarmup.periodSeconds }}
+            failureThreshold: {{ .Values.preflightWarmup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - mountPath: /dev/hugepages
+              name: hugepage-2mi
+      volumes:
+        - name: hugepage-2mi
+          emptyDir:
+            medium: HugePages

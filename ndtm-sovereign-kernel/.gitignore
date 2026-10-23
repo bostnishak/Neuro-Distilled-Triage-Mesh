@@ -1,0 +1,36 @@
+# Secrets and local state
+.env
+*.pem
+*.key
+secrets/
+*.sig
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node
+node_modules/
+frontend/dist/
+
+# Models and data (large, tracked via DVC/LFS, never committed raw)
+backend/models/*.onnx
+*.onnx
+data/
+
+# C++
+build/
+cmake-build-*/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

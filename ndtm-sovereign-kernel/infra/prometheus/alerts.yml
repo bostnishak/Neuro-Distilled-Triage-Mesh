@@ -1,0 +1,81 @@
+# ==============================================================================
+# NDTM-9000 SOVEREIGN KERNEL — PROMETHEUS CRITICAL SRE ALERT RULES
+# Formal Alerts for Latency Violations, Byzantine Attacks, and Circuit Breakers
+# ==============================================================================
+
+groups:
+  - name: ndtm_kernel_sre_alerts
+    rules:
+      # 1. Teacher LLM Circuit Breaker Tripped
+      - alert: NDTMTeacherCircuitBreakerTripped
+        expr: ndtm_circuit_breaker_state{circuit="teacher_llm"} == 1
+        for: 15s
+        labels:
+          severity: critical
+          tier: control-plane
+        annotations:
+          summary: "Upstream Teacher LLM Circuit Breaker is OPEN"
+          description: "Consecutive upstream 503/timeout failures tripped the circuit. Traffic is currently falling back to INT8 ONNX Student."
+
+      # 2. Control-Theoretic PID Latency Setpoint Exceeded
+      - alert: NDTMPIDLatencySetpointExceeded
+        expr: histogram_quantile(0.95, rate(ndtm_inference_latency_seconds_bucket[1m])) * 1000 > 35.0
+        for: 30s
+        labels:
+          severity: warning
+          tier: inference
+        annotations:
+          summary: "P95 Inference Latency > 35ms"
+          description: "PID controller dynamic entropy threshold is modulating to absorb load into student."
+
+      # 3. RabbitMQ Dead Letter Queue Accumulation
+      - alert: NDTMRabbitMQDLQSpike
+        expr: rabbitmq_queue_messages{queue="ndtm.dlq"} > 5
+        for: 1m
+        labels:
+          severity: warning
+          tier: messaging
+        annotations:
+          summary: "Dead Letter Queue has poisoned or unprocessable messages"
+          description: "More than 5 messages rejected by consumers routed to DLQ."
+
+      # 4. Byzantine Adversarial Node Detection
+      - alert: NDTMByzantineAttackerDetected
+        expr: increase(ndtm_federated_byzantine_rejections_total[5m]) > 0
+        labels:
+          severity: critical
+          tier: federated-mesh
+        annotations:
+          summary: "Byzantine gradient poisoning attempt detected and quarantined"
+          description: "Multi-Krum aggregation identified and isolated malicious gradient update."
+
+      # 5. POSIX Shared Memory Slot Saturation
+      - alert: NDTMPosixSHMArenaNearCapacity
+        expr: ndtm_shm_slots_occupied / ndtm_shm_slots_total > 0.85
+        for: 20s
+        labels:
+          severity: warning
+          tier: edge-ipc
+        annotations:
+          summary: "POSIX Shared Memory Arena occupancy > 85%"
+          description: "C++-to-Python tensor ring buffer is nearing maximum capacity."
+
+      # 6. Cryptographic Merkle Ledger Chain Tamper Detection
+      - alert: NDTMMerkleLedgerTamperDetected
+        expr: ndtm_merkle_tamper_detected == 1
+        labels:
+          severity: page
+          tier: audit-security
+        annotations:
+          summary: "CRITICAL: Merkle Block Chain Hash Mismatch Detected"
+          description: "Underlying database records modified out-of-band. Cryptographic audit chain broken."
+
+      # 7. Differential Privacy Budget Exhaustion
+      - alert: NDTMPrivacyBudgetDepleted
+        expr: ndtm_differential_privacy_epsilon_spent > 4.5
+        labels:
+          severity: warning
+          tier: federated-mesh
+        annotations:
+          summary: "Rényi Differential Privacy Budget nearing exhaustion (epsilon > 4.5)"
+          description: "Privacy budget cap is 5.0. Model retraining will halt once budget is fully exhausted."

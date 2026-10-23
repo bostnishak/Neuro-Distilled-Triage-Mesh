@@ -1,0 +1,82 @@
+# Default values for ndtm-sovereign-kernel Helm chart (v3.0.0 Omega).
+global:
+  environment: production
+  region: us-west-1
+  clusterDomain: cluster.local
+
+replicaCount: 6
+
+image:
+  repository: ndtm/sovereign-kernel-backend
+  tag: "v3.0.0-omega"
+  pullPolicy: IfNotPresent
+
+pgbouncer:
+  enabled: true
+  replicas: 3
+  image:
+    repository: edoburu/pgbouncer
+    tag: "1.22.1"
+  poolMode: transaction
+  maxClientConn: 10000
+  defaultPoolSize: 200
+  reservePoolSize: 50
+  port: 6432
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+
+canaryRollout:
+  enabled: true
+  steps:
+    - setWeight: 10
+    - pause: { duration: 10m }
+    - setWeight: 25
+    - pause: { duration: 30m }
+    - setWeight: 50
+    - pause: { duration: 1h }
+  maxSurge: "25%"
+  maxUnavailable: 0
+  analysis:
+    successfulRunHistoryLimit: 5
+    interval: 30s
+    count: 10
+    failureLimit: 1
+
+preflightWarmup:
+  enabled: true
+  targetP99LatencyMs: 15.0
+  readinessPath: /api/v3/sre/readiness
+  initialDelaySeconds: 5
+  periodSeconds: 3
+  failureThreshold: 4
+
+resources:
+  limits:
+    cpu: "8000m"
+    memory: "16Gi"
+    hugepages-2Mi: "2Gi"
+  requests:
+    cpu: "2000m"
+    memory: "4Gi"
+    hugepages-2Mi: "2Gi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 6
+  maxReplicas: 30
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  SERVICE_NAME: "ndtm-sovereign-kernel"
+  APP_ENV: "production"
+  Z3_SOLVER_TIMEOUT_MS: "1200"
+  ENABLE_SEQLOCK_IPC: "true"
+
+secrets:
+  existingSecret: "ndtm-secrets"

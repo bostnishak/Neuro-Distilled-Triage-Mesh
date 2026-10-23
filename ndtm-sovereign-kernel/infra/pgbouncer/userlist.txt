@@ -1,0 +1,4 @@
+"ndtm_admin" "SovereignKernel2026!SecureKey"
+"postgres" "SovereignKernel2026!SecureKey"
+"prometheus" "SovereignKernel2026!SecureKey"
+"ndtm_mesh" "AmqpMesh2026!Distributed"

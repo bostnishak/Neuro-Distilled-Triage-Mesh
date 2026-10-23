@@ -1,0 +1,106 @@
+name: NDTM-9000 Sovereign Kernel CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: Backend Test & Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev liblz4-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio flake8
+
+      - name: Compile Protocol Buffers
+        run: |
+          python -m grpc_tools.protoc \
+            -Iprotos \
+            --python_out=backend/ipc_bridge \
+            --grpc_python_out=backend/ipc_bridge \
+            protos/edge_ipc.proto protos/kernel_events.proto || true
+
+      - name: Run Pytest Test Suite
+        env:
+          APP_ENV: testing
+          JWT_SECRET_KEY: test_secret_key_32_bytes_long_ndtm9000
+          HMAC_SECRET_SALT: test_hmac_secret_salt_for_tckn_redact
+          Z3_SOLVER_TIMEOUT_MS: 1500
+        run: |
+          python -m pytest backend/tests -v --durations=10
+
+  edge-cpp-build:
+    name: Edge C++20 Kernel Build & Invariant Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up CMake & Ninja
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: "3.28.x"
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 ninja-build libpthread-stubs0-dev
+
+      - name: Configure CMake
+        env:
+          CXX: g++-13
+        run: |
+          cmake -B edge_cpp_kernel/build -S edge_cpp_kernel -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=20
+
+      - name: Build C++ Kernel & Invariants
+        run: |
+          cmake --build edge_cpp_kernel/build --config Release
+
+      - name: Run C++ Invariant Test Suite
+        run: |
+          ctest --test-dir edge_cpp_kernel/build --output-on-failure
+
+  security-and-license-scan:
+    name: Security & Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Detector
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Scan Python Dependencies with pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt || true

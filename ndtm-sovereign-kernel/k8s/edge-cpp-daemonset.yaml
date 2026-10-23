@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ndtm-edge-cpp-daemon
+  namespace: ndtm-sovereign
+spec:
+  selector:
+    matchLabels:
+      app: ndtm-edge-cpp-daemon
+  template:
+    metadata:
+      labels:
+        app: ndtm-edge-cpp-daemon
+    spec:
+      hostIPC: true
+      containers:
+        - name: edge-daemon
+          image: ndtm-edge-kernel:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add: ["SYS_PTRACE", "IPC_LOCK"]
+          volumeMounts:
+            - name: shm-volume
+              mountPath: /dev/shm
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+      volumes:
+        - name: shm-volume
+          hostPath:
+            path: /dev/shm

@@ -1,0 +1,117 @@
+# =============================================================================
+# Neuro-Distilled Triage Mesh — local / staging topology
+#
+#   postgres  : PostgreSQL 16 + pgvector (relational data + vectors + logs)
+#   rabbitmq  : RabbitMQ 3.13 with management UI (triage_queue, retry, DLQ)
+#   api       : FastAPI gateway (triage, router, symbolic engine endpoints)
+#   worker    : Async RabbitMQ consumer running DistillMesh triage inference
+#
+# All services share the isolated `mesh` bridge network. Only the ports needed
+# for local development are published to the host.
+# =============================================================================
+name: neuro-triage-mesh
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-triage}:${POSTGRES_PASSWORD:-triage_secret}@postgres:5432/${POSTGRES_DB:-triage}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-triage}:${RABBITMQ_PASSWORD:-triage_secret}@rabbitmq:5672/
+  UPLOAD_DIR: /data/uploads
+  STUDENT_MODEL_DIR: /app/models/student
+  HF_HOME: /opt/hf-cache
+
+x-app-common: &app-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: neuro-triage-mesh:latest
+  env_file:
+    - path: .env
+      required: false
+  restart: unless-stopped
+  networks: [mesh]
+  depends_on:
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ntm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-triage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-triage_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-triage}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-triage} -d ${POSTGRES_DB:-triage}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [mesh]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ntm-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-triage}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-triage_secret}
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672" # management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+    networks: [mesh]
+
+  api:
+    <<: *app-common
+    container_name: ntm-api
+    environment:
+      <<: *app-env
+    # A single uvicorn worker per container: the embedding model is held in
+    # memory. Scale horizontally with `docker compose up --scale api=N` behind
+    # a load balancer instead of forking workers.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf_cache:/opt/hf-cache
+      - uploads:/data/uploads
+      - ./models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s # first boot downloads the embedding model
+
+  worker:
+    <<: *app-common
+    container_name: ntm-worker
+    environment:
+      <<: *app-env
+    command: ["python", "-m", "workers.triage_worker"]
+    volumes:
+      - hf_cache:/opt/hf-cache
+      - ./models:/app/models:ro
+
+networks:
+  mesh:
+    driver: bridge
+
+volumes:
+  pgdata:
+  rabbitdata:
+  hf_cache:
+  uploads:

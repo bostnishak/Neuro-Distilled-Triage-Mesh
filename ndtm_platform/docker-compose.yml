@@ -1,0 +1,117 @@
+# =============================================================================
+# Neuro-Distilled Triage Mesh (NDTM Platform) — Docker Compose Topology
+# Services:
+#   - postgres: PostgreSQL 16 with pgvector extension (Vectors, Relational, Logs)
+#   - redis: Redis 7.2 Alpine (Distributed Semantic KV-Cache & Rate Limiting)
+#   - rabbitmq: RabbitMQ 3.13 with Management Plugin (Queues, DLQ, Retries)
+#   - api: FastAPI Gateway Microservice
+#   - worker: Asynchronous Triage Consumer & Continuous Learning LoRA Worker
+# =============================================================================
+name: ndtm-platform
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-triage}:${POSTGRES_PASSWORD:-triage_secret}@postgres:5432/${POSTGRES_DB:-triage}
+  REDIS_URL: redis://redis:6379/0
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-triage}:${RABBITMQ_PASSWORD:-triage_secret}@rabbitmq:5672/
+  UPLOAD_DIR: /data/uploads
+  STUDENT_MODEL_DIR: /app/models/student
+  HF_HOME: /opt/hf-cache
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ndtm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-triage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-triage_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-triage}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-triage} -d ${POSTGRES_DB:-triage}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [ndtm-mesh]
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ndtm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [ndtm-mesh]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ndtm-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-triage}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-triage_secret}
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+    networks: [ndtm-mesh]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ndtm-api
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf_cache:/opt/hf-cache
+      - uploads:/data/uploads
+      - ./models_storage:/app/models/student
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks: [ndtm-mesh]
+
+networks:
+  ndtm-mesh:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:
+  hf_cache:
+  uploads:

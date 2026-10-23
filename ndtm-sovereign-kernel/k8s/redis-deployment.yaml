@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ndtm-redis
+  namespace: ndtm-sovereign
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ndtm-redis
+  template:
+    metadata:
+      labels:
+        app: ndtm-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          ports:
+            - containerPort: 6379
+          command:
+            - "redis-server"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ndtm-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ndtm-redis-service
+  namespace: ndtm-sovereign
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+  selector:
+    app: ndtm-redis

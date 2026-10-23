@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ndtm-postgres
+  namespace: ndtm-sovereign
+spec:
+  serviceName: ndtm-postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ndtm-postgres
+  template:
+    metadata:
+      labels:
+        app: ndtm-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:16-3.4
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: ndtm-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ndtm-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ndtm-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "8Gi"
+              cpu: "4000m"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ndtm-postgres-service
+  namespace: ndtm-sovereign
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: ndtm-postgres

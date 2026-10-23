@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package ndtm.kernel.events;
+
+option csharp_namespace = "NDTM.Kernel.Events";
+option go_package = "ndtm/kernel/events";
+option java_package = "com.ndtm.kernel.events";
+
+// Complete Event Sourced Domain Event Contract
+message KernelDomainEventProto {
+  int64 seq_no = 1;
+  string event_id = 2;
+  int64 timestamp_ns = 3;
+  string universe_branch_id = 4;
+  string aggregate_type = 5;
+  string aggregate_id = 6;
+  string event_type = 7;
+  string payload_json = 8;
+  string actor_id = 9;
+  string prev_hash = 10;
+  string block_hash = 11;
+  string merkle_root = 12;
+  string signature_ed25519 = 13;
+}
+
+// Sealed Merkle Block Ledger Header
+message MerkleAuditBlockProto {
+  int64 block_height = 1;
+  int64 start_seq_no = 2;
+  int64 end_seq_no = 3;
+  int32 event_count = 4;
+  string merkle_root = 5;
+  string prev_block_hash = 6;
+  string block_hash = 7;
+  string sealed_at_iso = 8;
+  string validator_signature = 9;
+}
+
+// Hawkes Process Spatio-Temporal Forecast
+message HawkesForecastClusterProto {
+  string cluster_id = 1;
+  double centroid_latitude = 2;
+  double centroid_longitude = 3;
+  double current_intensity = 4;
+  double predicted_aftershocks_30m = 5;
+  repeated string affected_categories = 6;
+  int64 forecast_timestamp_ns = 7;
+}
+
+// Neuro-Symbolic Pareto-Optimal Dispatch Solution
+message Z3ParetoPlanProto {
+  string incident_id = 1;
+  string team_id = 2;
+  string pareto_plan_type = 3;
+  int32 estimated_travel_minutes = 4;
+  int32 estimated_work_minutes = 5;
+  int32 arrival_time_minutes = 6;
+  double objective_speed_score = 7;
+  double objective_cost_score = 8;
+  string z3_proof_smt2 = 9;
+  string z3_proof_hash = 10;
+}
+
+// Causal Digital Twin Submodular Intervention
+message CausalInterventionRecommendationProto {
+  string failed_node_code = 1;
+  repeated string recommended_reinforced_nodes = 2;
+  double baseline_cascade_risk = 3;
+  double counterfactual_cascade_risk = 4;
+  double risk_reduction_delta = 5;
+  int64 computed_at_ns = 6;
+}

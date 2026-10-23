@@ -1,0 +1,235 @@
+version: "3.9"
+
+services:
+  postgres:
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    image: ndtm-sovereign/postgres:16-postgis-pgvector
+    container_name: ndtm_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ndtm_kernel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ndtm_sovereign_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/01_extensions_and_types.sql:/docker-entrypoint-initdb.d/01_extensions_and_types.sql:ro
+      - ./infra/postgres/02_core_tables_and_hnsw.sql:/docker-entrypoint-initdb.d/02_core_tables_and_hnsw.sql:ro
+      - ./infra/postgres/03_event_store_and_merkle.sql:/docker-entrypoint-initdb.d/03_event_store_and_merkle.sql:ro
+      - ./infra/postgres/04_seed_istanbul_topology.sql:/docker-entrypoint-initdb.d/04_seed_istanbul_topology.sql:ro
+      - ./infra/postgres/05_partitioned_hot_schema_v3.sql:/docker-entrypoint-initdb.d/05_partitioned_hot_schema_v3.sql:ro
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ndtm_kernel} -d ${POSTGRES_DB:-ndtm_sovereign_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ndtm_mesh_net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ndtm_redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./infra/redis/lua_scripts:/lua_scripts:ro
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ndtm_mesh_net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ndtm_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ndtm_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-ndtm_vhost}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - ndtm_mesh_net
+
+  edge-cpp-kernel:
+    build:
+      context: ./edge_cpp_kernel
+      dockerfile: Dockerfile
+    image: ndtm-sovereign/edge-cpp-kernel:v2.0
+    container_name: ndtm_edge_cpp_kernel
+    restart: always
+    ipc: host
+    ports:
+      - "50051:50051"
+    volumes:
+      - shm_arena:/dev/shm
+      - ./models:/models:ro
+    environment:
+      - SHM_ARENA_NAME=/ndtm_tensor_arena
+      - SHM_ARENA_SIZE_MB=64
+      - GRPC_PORT=50051
+      - LOG_LEVEL=INFO
+    networks:
+      - ndtm_mesh_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-sovereign/backend-kernel:v2.0
+    container_name: ndtm_backend_kernel
+    restart: always
+    ipc: host
+    ports:
+      - "${BACKEND_PORT:-8001}:8000"
+    volumes:
+      - shm_arena:/dev/shm
+      - ./backend:/app
+      - ./models:/models
+      - ./distilled_models:/distilled_models
+    environment:
+      - NDTM_ENV=production
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ndtm_kernel}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-ndtm_sovereign_db}
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-ndtm_admin}:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/${RABBITMQ_VHOST:-ndtm_vhost}
+      - SHM_ARENA_NAME=/ndtm_tensor_arena
+      - SHM_ARENA_SIZE_MB=64
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      - HMAC_SECRET_SALT=${HMAC_SECRET_SALT:-SOVEREIGN_HMAC_SALT_TCKN_2026}
+      - PID_KP=0.045
+      - PID_KI=0.012
+      - PID_KD=0.008
+      - PID_TARGET_LATENCY_MS=20.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/livez')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - ndtm_mesh_net
+
+  triage-pipeline-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-sovereign/backend-kernel:v2.0
+    container_name: ndtm_triage_worker
+    restart: always
+    command: ["python", "-m", "application.workers.rabbitmq_triage_worker"]
+    volumes:
+      - ./backend:/app
+      - ./models:/models:ro
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ndtm_kernel}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-ndtm_sovereign_db}
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-ndtm_admin}:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/${RABBITMQ_VHOST:-ndtm_vhost}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ndtm_mesh_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ndtm-sovereign/frontend-cockpit:v2.0
+    container_name: ndtm_frontend_cockpit
+    restart: always
+    ports:
+      - "5173:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8001
+      - VITE_WS_TELEMETRY_URL=ws://localhost:8001/api/v1/telemetry/ws
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ndtm_mesh_net
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ndtm_prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - ndtm_mesh_net
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ndtm_nginx_ingress
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - ndtm_mesh_net
+
+networks:
+  ndtm_mesh_net:
+    driver: bridge
+    name: ndtm_mesh_net
+
+volumes:
+  pgdata:
+    name: ndtm_pgdata
+  redisdata:
+    name: ndtm_redisdata
+  rabbitmqdata:
+    name: ndtm_rabbitmqdata
+  promdata:
+    name: ndtm_promdata
+  shm_arena:
+    name: ndtm_shm_arena

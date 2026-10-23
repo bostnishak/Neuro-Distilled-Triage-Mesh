@@ -1,0 +1,104 @@
+{
+  "rabbit_version": "3.13.0",
+  "rabbitmq_version": "3.13.0",
+  "users": [
+    {
+      "name": "ndtm_user",
+      "password_hash": "2o3y+y1fO1n3f3M3k3l3j3h3g3f3e3d3c3b3a3987654321",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ["administrator"],
+      "limits": {}
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "ndtm_user",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "topic_permissions": [],
+  "parameters": [],
+  "global_parameters": [],
+  "policies": [],
+  "queues": [
+    {
+      "name": "q.triage.process",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "ndtm.dlx.direct",
+        "x-dead-letter-routing-key": "dlq.triage",
+        "x-message-ttl": 60000
+      }
+    },
+    {
+      "name": "q.shadow.evaluate",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "q.dlq.failed",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "ndtm.events.topic",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ndtm.dlx.direct",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "ndtm.events.topic",
+      "vhost": "/",
+      "destination": "q.triage.process",
+      "destination_type": "queue",
+      "routing_key": "triage.incident.*",
+      "arguments": {}
+    },
+    {
+      "source": "ndtm.events.topic",
+      "vhost": "/",
+      "destination": "q.shadow.evaluate",
+      "destination_type": "queue",
+      "routing_key": "router.shadow.*",
+      "arguments": {}
+    },
+    {
+      "source": "ndtm.dlx.direct",
+      "vhost": "/",
+      "destination": "q.dlq.failed",
+      "destination_type": "queue",
+      "routing_key": "dlq.triage",
+      "arguments": {}
+    }
+  ]
+}

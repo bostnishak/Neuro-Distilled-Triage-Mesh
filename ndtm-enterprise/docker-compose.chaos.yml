@@ -1,0 +1,47 @@
+# ==============================================================================
+# Neuro-Distilled Triage Mesh (NDTM) — Chaos Engineering & Resiliency Overlay
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.chaos.yml up
+# ==============================================================================
+version: "3.8"
+
+services:
+  # ----------------------------------------------------------------------------
+  # Chaos Proxy (Shopify Toxiproxy for TCP Fault & Latency Injection)
+  # ----------------------------------------------------------------------------
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: ndtm-toxiproxy
+    restart: unless-stopped
+    ports:
+      - "8474:8474" # Toxiproxy HTTP Admin API
+      - "25432:25432" # Proxied PostgreSQL port (for network partition simulation)
+      - "26379:26379" # Proxied Redis port (for latency injection)
+      - "25672:25672" # Proxied RabbitMQ port (for split-brain tests)
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+
+  # ----------------------------------------------------------------------------
+  # Chaos Injector Agent (Automated SRE Failure Simulation)
+  # ----------------------------------------------------------------------------
+  chaos-injector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ndtm-backend:latest
+    container_name: ndtm-chaos-runner
+    restart: "no"
+    command: ["python", "-m", "load_tests.chaos_injector", "--mode", "interactive"]
+    env_file:
+      - .env
+    environment:
+      TOXIPROXY_HOST: toxiproxy
+      TOXIPROXY_PORT: 8474
+    networks:
+      - ndtm_mesh_network
+    depends_on:
+      - backend
+      - toxiproxy

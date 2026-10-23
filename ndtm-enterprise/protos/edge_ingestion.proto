@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package ndtm.edge.v2;
+
+option go_package = "ndtm/edge/v2;edgev2";
+option java_multiple_files = true;
+option java_package = "com.ndtm.edge.v2";
+
+// Service for high-frequency acoustic/vibration telemetry ingestion and edge device control
+service EdgeTelemetryIngestion {
+  // Bi-directional / client-streaming of high-frequency sensor frames from edge nodes
+  rpc StreamEdgeAnomalies(stream EdgeSensorFrame) returns (EdgeIngestionAck);
+
+  // Periodic heartbeat reporting node health, resource usage, and receiving orchestrator commands
+  rpc Heartbeat(EdgeNodeStatus) returns (ControlCommand);
+}
+
+message EdgeSensorFrame {
+  string node_id = 1;
+  int64 timestamp_unix_ns = 2;
+  double sample_rate_hz = 3;
+  repeated float raw_vibration_samples = 4;
+  repeated float raw_acoustic_samples = 5;
+  repeated float fft_mel_bands = 6; // 16 Mel-frequency energy bins
+  double spectral_entropy = 7;
+  double bearing_fault_harmonic = 8;
+  double anomaly_score = 9;
+  bool is_critical_alert = 10;
+  map<string, string> metadata = 11;
+}
+
+message EdgeIngestionAck {
+  bool success = 1;
+  uint64 frames_received = 2;
+  int64 server_timestamp_ns = 3;
+  string ack_id = 4;
+  string message = 5;
+}
+
+message EdgeNodeStatus {
+  string node_id = 1;
+  string firmware_version = 2;
+  uint64 memory_used_bytes = 3;
+  double cpu_percent = 4;
+  uint32 queue_depth = 5;
+  double last_infer_ms = 6;
+  bool onnx_engine_healthy = 7;
+}
+
+message ControlCommand {
+  string command_id = 1;
+  string target_action = 2; // e.g. "ADJUST_SAMPLING_RATE", "FORCE_HOTSWAP", "EMERGENCY_SHUTDOWN"
+  map<string, string> parameters = 3;
+  int64 issued_timestamp_ns = 4;
+}

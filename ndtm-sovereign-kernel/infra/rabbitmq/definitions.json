@@ -1,0 +1,129 @@
+{
+  "rabbit_version": "3.13.0",
+  "vhosts": [
+    {
+      "name": "ndtm_vhost"
+    }
+  ],
+  "users": [
+    {
+      "name": "ndtm_admin",
+      "password": "RabbitSecure_TqYuG6iBGPZI-LrkD3szRw",
+      "tags": ["administrator"]
+    }
+  ],
+  "permissions": [
+    {
+      "user": "ndtm_admin",
+      "vhost": "ndtm_vhost",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "ndtm.events.topic",
+      "vhost": "ndtm_vhost",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ndtm.triage.direct",
+      "vhost": "ndtm_vhost",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ndtm.dlx",
+      "vhost": "ndtm_vhost",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "ndtm.triage.ingress",
+      "vhost": "ndtm_vhost",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "ndtm.dlx",
+        "x-max-priority": 10,
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "ndtm.shadow.drift",
+      "vhost": "ndtm_vhost",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "ndtm.dlx",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ndtm.distillation.queue",
+      "vhost": "ndtm_vhost",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "ndtm.dlx",
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ndtm.dlq",
+      "vhost": "ndtm_vhost",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "ndtm.triage.direct",
+      "vhost": "ndtm_vhost",
+      "destination": "ndtm.triage.ingress",
+      "destination_type": "queue",
+      "routing_key": "triage.process",
+      "arguments": {}
+    },
+    {
+      "source": "ndtm.events.topic",
+      "vhost": "ndtm_vhost",
+      "destination": "ndtm.shadow.drift",
+      "destination_type": "queue",
+      "routing_key": "model.shadow.*",
+      "arguments": {}
+    },
+    {
+      "source": "ndtm.events.topic",
+      "vhost": "ndtm_vhost",
+      "destination": "ndtm.distillation.queue",
+      "destination_type": "queue",
+      "routing_key": "model.retrain.*",
+      "arguments": {}
+    },
+    {
+      "source": "ndtm.dlx",
+      "vhost": "ndtm_vhost",
+      "destination": "ndtm.dlq",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ]
+}

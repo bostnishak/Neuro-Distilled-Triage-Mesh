@@ -1,0 +1,81 @@
+groups:
+  - name: ndtm_slo_burn_rate_rules
+    rules:
+      # Recording Rules: Error Rates across evaluation windows
+      - record: job:ndtm_requests:error_rate_1h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.*"}[1h]))
+          /
+          sum(rate(http_requests_total[1h]))
+
+      - record: job:ndtm_requests:error_rate_6h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.*"}[6h]))
+          /
+          sum(rate(http_requests_total[6h]))
+
+      - record: job:ndtm_requests:error_rate_24h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.*"}[24h]))
+          /
+          sum(rate(http_requests_total[24h]))
+
+      - record: job:ndtm_requests:error_rate_72h
+        expr: |
+          sum(rate(http_requests_total{status=~"5.*"}[72h]))
+          /
+          sum(rate(http_requests_total[72h]))
+
+      # Recording Rules: Burn Rates relative to 99.9% Availability (Error Budget = 0.001)
+      - record: job:ndtm_slo:burn_rate_1h
+        expr: job:ndtm_requests:error_rate_1h / 0.001
+
+      - record: job:ndtm_slo:burn_rate_6h
+        expr: job:ndtm_requests:error_rate_6h / 0.001
+
+      - record: job:ndtm_slo:burn_rate_24h
+        expr: job:ndtm_requests:error_rate_24h / 0.001
+
+      - record: job:ndtm_slo:burn_rate_72h
+        expr: job:ndtm_requests:error_rate_72h / 0.001
+
+      # Alerting Rules: Multi-Burn-Rate Google SRE Thresholds
+      - alert: NDTMSLOBurnRate1hHigh
+        expr: job:ndtm_slo:burn_rate_1h > 14.4
+        for: 2m
+        labels:
+          severity: page
+          tier: sovereign_sre
+        annotations:
+          summary: "Critical 1h error budget burn rate (14.4x)"
+          description: "NDTM has consumed 2% of monthly error budget in the last 1 hour. Immediate SRE paging triggered."
+
+      - alert: NDTMSLOBurnRate6hHigh
+        expr: job:ndtm_slo:burn_rate_6h > 6.0
+        for: 5m
+        labels:
+          severity: page
+          tier: sovereign_sre
+        annotations:
+          summary: "Critical 6h error budget burn rate (6.0x)"
+          description: "NDTM has consumed 5% of monthly error budget in the last 6 hours."
+
+      - alert: NDTMSLOBurnRate24hHigh
+        expr: job:ndtm_slo:burn_rate_24h > 3.0
+        for: 15m
+        labels:
+          severity: ticket
+          tier: sovereign_sre
+        annotations:
+          summary: "Elevated 24h error budget burn rate (3.0x)"
+          description: "NDTM has consumed 10% of monthly error budget in the last 24 hours. File ticket."
+
+      - alert: NDTMSLOBurnRate72hHigh
+        expr: job:ndtm_slo:burn_rate_72h > 1.0
+        for: 1h
+        labels:
+          severity: audit
+          tier: sovereign_sre
+        annotations:
+          summary: "Steady 72h error budget burn rate (1.0x)"
+          description: "NDTM will exhaust 100% of 30-day budget if burn rate persists. Review during weekly SRE sync."

@@ -1,0 +1,42 @@
+# ---- Web Framework & Data Validation ----------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-multipart==0.0.19
+
+# ---- Relational & Vector Database -------------------------------------------
+asyncpg==0.30.0
+pgvector==0.3.6
+
+# ---- Caching & Distributed KV Store -----------------------------------------
+redis[hiredis]==5.2.0
+
+# ---- Asynchronous AMQP 0-9-1 Messaging --------------------------------------
+aio-pika==9.5.3
+
+# ---- HTTP, Resilience & Circuit Breaker -------------------------------------
+httpx==0.28.1
+tenacity==9.0.0
+
+# ---- Numerics, Imaging & Cryptography ---------------------------------------
+numpy==1.26.4
+pillow==11.0.0
+
+# ---- AI, Transformers & ONNX Quantization -----------------------------------
+torch==2.5.1
+transformers==4.48.0
+sentence-transformers==3.3.1
+onnx==1.17.0
+onnxruntime==1.20.1
+peft==0.14.0
+
+# ---- Neuro-Symbolic Verification Engine --------------------------------------
+z3-solver==4.13.3.0
+
+# ---- Observability & Telemetry -----------------------------------------------
+prometheus-client==0.21.1
+
+# ---- Testing & Tooling -------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.24.0

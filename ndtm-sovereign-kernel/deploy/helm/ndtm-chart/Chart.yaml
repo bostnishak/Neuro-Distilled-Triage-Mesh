@@ -1,0 +1,16 @@
+apiVersion: v2
+name: ndtm-sovereign-kernel
+description: Carrier-Grade Helm Chart for Neuro-Distilled Triage Mesh (NDTM-9000 Omega)
+type: application
+version: 3.0.0
+appVersion: "3.0.0"
+keywords:
+  - ai-kernel
+  - multimodal-triage
+  - argo-rollouts
+  - pgbouncer-ha
+  - z3-maxsmt
+home: https://github.com/sovereign-mesh/ndtm
+maintainers:
+  - name: Sovereign SRE & Platform Architecture Team
+    email: sre-mesh@ndtm.internal
